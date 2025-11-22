@@ -23,12 +23,14 @@ const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 // ----------------------------
 async function getAccessToken() {
   const url = "https://auth-integration.servicetitan.io/connect/token";
+
   const body = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: CLIENT_ID,
     client_secret: CLIENT_SECRET,
-    scope: "openid offline_access",
+    scope: "openid offline_access", // this was causing invalid_scope before
   });
+
   const headers = {
     "Content-Type": "application/x-www-form-urlencoded",
     "ST-App-Key": APP_KEY,
@@ -60,7 +62,7 @@ async function pollServiceTitan(token) {
 
     const jobs = res.data?.data || [];
     if (jobs.length > 0) {
-      console.log(`📌 Found ${jobs.length} job updates`);
+      console.log(`📌 Found ${jobs.length} new/updated jobs`);
       for (const job of jobs) {
         await sendJobToGHL(job);
       }
