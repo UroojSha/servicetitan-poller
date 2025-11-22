@@ -1,8 +1,7 @@
-import 'dotenv/config';
 import axios from "axios";
 
 // ---------------------------
-// ENVIRONMENT VARIABLES
+// ENVIRONMENT VARIABLES (from Render)
 // ---------------------------
 const TENANT_ID = process.env.ST_TENANT_ID;
 const CLIENT_ID = process.env.ST_CLIENT_ID;
@@ -67,7 +66,6 @@ async function pollServiceTitan(token) {
       console.log(`📌 Found ${jobs.length} new/updated jobs`);
 
       for (const job of jobs) {
-        // Skip if already synced
         if (!syncedJobs.has(job.id)) {
           await sendJobToGHL(job);
           syncedJobs.add(job.id);
