@@ -1,5 +1,5 @@
 {
-  "name": "st-poller",
+  "name": "st-to-ghl-sync",
   "version": "1.0.0",
   "main": "index.js",
   "type": "module",
