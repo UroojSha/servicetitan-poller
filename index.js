@@ -1,6 +1,9 @@
+import 'dotenv/config';
 import axios from "axios";
 
+// ---------------------------
 // ENVIRONMENT VARIABLES
+// ---------------------------
 const TENANT_ID = process.env.ST_TENANT_ID;
 const CLIENT_ID = process.env.ST_CLIENT_ID;
 const CLIENT_SECRET = process.env.ST_CLIENT_SECRET;
@@ -9,16 +12,20 @@ const APP_KEY = process.env.ST_APP_KEY;
 const GHL_API_KEY = process.env.GHL_API_KEY;
 const GHL_CALENDAR_ID = process.env.GHL_CALENDAR_ID;
 
+// Last timestamp for polling
 let lastTimestamp = new Date().toISOString();
 
-// Sleep function
+// Keep track of synced job IDs to avoid duplicates
+const syncedJobs = new Set();
+
+// Sleep utility
 const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
-/* --------------------------------------
-   SERVICE TITAN AUTH
----------------------------------------*/
+// ---------------------------
+// SERVICE TITAN AUTH (Sandbox)
+// ---------------------------
 async function getAccessToken() {
-  const url = "https://auth.servicetitan.io/connect/token";
+  const url = "https://integration.servicetitan.com/connect/token";
 
   const body = new URLSearchParams({
     grant_type: "client_credentials",
@@ -27,42 +34,57 @@ async function getAccessToken() {
     scope: "openid offline_access"
   });
 
-  const res = await axios.post(url, body, {
-    headers: { "Content-Type": "application/x-www-form-urlencoded" }
-  });
+  try {
+    const res = await axios.post(url, body, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" }
+    });
 
-  return res.data.access_token;
-}
-
-/* --------------------------------------
-   POLL SERVICE TITAN FOR UPDATES
----------------------------------------*/
-async function pollServiceTitan(token) {
-  const url = `https://api.servicetitan.io/crm/v2/tenant/${TENANT_ID}/jobs?modifiedOnStart=${lastTimestamp}`;
-
-  const res = await axios.get(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "ST-App-Key": APP_KEY
-    }
-  });
-
-  const jobs = res.data?.data || [];
-
-  if (jobs.length > 0) {
-    console.log(`📌 Found ${jobs.length} new/updated jobs`);
-
-    for (const job of jobs) {
-      await sendJobToGHL(job);
-    }
-
-    lastTimestamp = new Date().toISOString();
+    console.log("🔑 Successfully got ServiceTitan token");
+    return res.data.access_token;
+  } catch (err) {
+    console.error("❌ Failed to get ServiceTitan token:", err.response?.data || err);
+    throw err;
   }
 }
 
-/* --------------------------------------
-   SEND JOB TO GHL
----------------------------------------*/
+// ---------------------------
+// POLL SERVICE TITAN FOR UPDATES
+// ---------------------------
+async function pollServiceTitan(token) {
+  const url = `https://integration.servicetitan.com/crm/v2/tenant/${TENANT_ID}/jobs?modifiedOnStart=${lastTimestamp}`;
+
+  try {
+    const res = await axios.get(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "ST-App-Key": APP_KEY
+      }
+    });
+
+    const jobs = res.data?.data || [];
+
+    if (jobs.length > 0) {
+      console.log(`📌 Found ${jobs.length} new/updated jobs`);
+
+      for (const job of jobs) {
+        // Skip if already synced
+        if (!syncedJobs.has(job.id)) {
+          await sendJobToGHL(job);
+          syncedJobs.add(job.id);
+        }
+      }
+
+      lastTimestamp = new Date().toISOString();
+    }
+  } catch (err) {
+    console.error("❌ Polling ServiceTitan failed:", err.response?.data || err);
+    if (err.response?.status === 401) throw new Error("TOKEN_EXPIRED");
+  }
+}
+
+// ---------------------------
+// SEND JOB TO GHL
+// ---------------------------
 async function sendJobToGHL(job) {
   const url = `https://rest.gohighlevel.com/v1/appointments/`;
 
@@ -90,19 +112,24 @@ async function sendJobToGHL(job) {
   }
 }
 
-/* --------------------------------------
-   MAIN LOOP
----------------------------------------*/
+// ---------------------------
+// MAIN LOOP
+// ---------------------------
 async function main() {
   console.log("🚀 ServiceTitan → GHL Sync Started");
+
   let token = await getAccessToken();
 
   while (true) {
     try {
       await pollServiceTitan(token);
     } catch (err) {
-      console.log("Token expired — refreshing…");
-      token = await getAccessToken();
+      if (err.message === "TOKEN_EXPIRED") {
+        console.log("🔄 Token expired — refreshing…");
+        token = await getAccessToken();
+      } else {
+        console.error("⚠ Unexpected error during polling:", err);
+      }
     }
 
     await sleep(3000); // poll every 3 seconds
