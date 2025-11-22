@@ -22,22 +22,19 @@ const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 // GET SERVICE TITAN SANDBOX TOKEN
 // ----------------------------
 async function getAccessToken() {
-  const url = "https://auth-integration.servicetitan.io/connect/token";
-
-  const body = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: CLIENT_ID,
-    client_secret: CLIENT_SECRET,
-    scope: "openid offline_access", // this was causing invalid_scope before
-  });
-
   const headers = {
     "Content-Type": "application/x-www-form-urlencoded",
     "ST-App-Key": APP_KEY,
   };
 
+  const data = `grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}`;
+
   try {
-    const res = await axios.post(url, body, { headers });
+    const res = await axios.post(
+      "https://auth-integration.servicetitan.io/connect/token",
+      data,
+      { headers }
+    );
     console.log("🔑 ST sandbox token obtained");
     return res.data.access_token;
   } catch (err) {
@@ -62,7 +59,7 @@ async function pollServiceTitan(token) {
 
     const jobs = res.data?.data || [];
     if (jobs.length > 0) {
-      console.log(`📌 Found ${jobs.length} new/updated jobs`);
+      console.log(`📌 Found ${jobs.length} job updates`);
       for (const job of jobs) {
         await sendJobToGHL(job);
       }
@@ -78,6 +75,7 @@ async function pollServiceTitan(token) {
 // ----------------------------
 async function sendJobToGHL(job) {
   const url = "https://rest.gohighlevel.com/v1/appointments/";
+
   const payload = {
     calendarId: GHL_CALENDAR_ID,
     title: `Job #${job.id} - ${job.customer?.name ?? "No Name"}`,
@@ -119,5 +117,5 @@ async function main() {
   }
 }
 
-// Run the sync
+// Start the process
 main();
