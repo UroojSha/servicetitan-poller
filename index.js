@@ -1,6 +1,6 @@
 import axios from "axios";
 
-// Load environment variables
+// ENVIRONMENT VARIABLES
 const TENANT_ID = process.env.ST_TENANT_ID;
 const CLIENT_ID = process.env.ST_CLIENT_ID;
 const CLIENT_SECRET = process.env.ST_CLIENT_SECRET;
@@ -11,103 +11,101 @@ const GHL_CALENDAR_ID = process.env.GHL_CALENDAR_ID;
 
 let lastTimestamp = new Date().toISOString();
 
-// Helper to sleep
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+// Sleep function
+const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
-// --------------------
-// GET ACCESS TOKEN
-// --------------------
+/* --------------------------------------
+   SERVICE TITAN AUTH
+---------------------------------------*/
 async function getAccessToken() {
-  const url = `https://auth.servicetitan.io/connect/token`;
+  const url = "https://auth.servicetitan.io/connect/token";
 
-  const data = new URLSearchParams({
+  const body = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: CLIENT_ID,
     client_secret: CLIENT_SECRET,
     scope: "openid offline_access"
   });
 
-  const response = await axios.post(url, data, {
+  const res = await axios.post(url, body, {
     headers: { "Content-Type": "application/x-www-form-urlencoded" }
   });
 
-  return response.data.access_token;
+  return res.data.access_token;
 }
 
-// --------------------
-// POLL SERVICE TITAN
-// --------------------
+/* --------------------------------------
+   POLL SERVICE TITAN FOR UPDATES
+---------------------------------------*/
 async function pollServiceTitan(token) {
   const url = `https://api.servicetitan.io/crm/v2/tenant/${TENANT_ID}/jobs?modifiedOnStart=${lastTimestamp}`;
 
-  const response = await axios.get(url, {
+  const res = await axios.get(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       "ST-App-Key": APP_KEY
     }
   });
 
-  const jobs = response.data.data || [];
+  const jobs = res.data?.data || [];
 
   if (jobs.length > 0) {
-    console.log(`Found ${jobs.length} updated jobs`);
+    console.log(`📌 Found ${jobs.length} new/updated jobs`);
 
     for (const job of jobs) {
-      await sendToGHL(job);
+      await sendJobToGHL(job);
     }
 
     lastTimestamp = new Date().toISOString();
   }
 }
 
-// --------------------
-// SEND JOB TO GHL
-// --------------------
-async function sendToGHL(job) {
+/* --------------------------------------
+   SEND JOB TO GHL
+---------------------------------------*/
+async function sendJobToGHL(job) {
   const url = `https://rest.gohighlevel.com/v1/appointments/`;
 
-  const data = {
+  const payload = {
     calendarId: GHL_CALENDAR_ID,
-    title: `Job #${job.id} - ${job.customer?.name ?? "Unknown"}`,
+    title: `Job #${job.id} - ${job.customer?.name ?? "No Name"}`,
     startTime: job.start,
     endTime: job.end,
-    name: job.customer?.name ?? "No Name",
-    email: job.customer?.email ?? "",
-    phone: job.customer?.phone ?? ""
+    name: job.customer?.name || "Unknown",
+    email: job.customer?.email || "",
+    phone: job.customer?.phone || ""
   };
 
   try {
-    await axios.post(url, data, {
+    await axios.post(url, payload, {
       headers: {
         Authorization: `Bearer ${GHL_API_KEY}`,
         "Content-Type": "application/json"
       }
     });
 
-    console.log(`Synced job ${job.id} → GHL`);
+    console.log(`✅ Synced job ${job.id} → GHL`);
   } catch (err) {
-    console.error("GHL Sync Failed:", err.response?.data || err);
+    console.error("❌ GHL sync failed:", err.response?.data || err);
   }
 }
 
-// --------------------
-// MAIN LOOP
-// --------------------
+/* --------------------------------------
+   MAIN LOOP
+---------------------------------------*/
 async function main() {
-  console.log("🚀 ServiceTitan → GHL Poller Started");
+  console.log("🚀 ServiceTitan → GHL Sync Started");
   let token = await getAccessToken();
 
   while (true) {
     try {
       await pollServiceTitan(token);
     } catch (err) {
-      console.error("Error polling:", err);
-      token = await getAccessToken(); // refresh token if needed
+      console.log("Token expired — refreshing…");
+      token = await getAccessToken();
     }
 
-    await sleep(3000); // 3 seconds
+    await sleep(3000); // poll every 3 seconds
   }
 }
 
